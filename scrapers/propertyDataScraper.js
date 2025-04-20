@@ -248,16 +248,217 @@ class PropertyDataScraper {
   }
   
   async scrapeFromRealtor(lat, lng, radius) {
-    // Similar implementation to Zillow scraper
-    console.log('Realtor.com scraping would be implemented here');
-    // Implementation would follow similar pattern to Zillow scraper
+    try {
+      const page = await this.browser.newPage();
+      
+      // Set user agent
+      await page.setUserAgent(this.getRandomUserAgent());
+      
+      // Intercept requests to avoid unnecessary resources
+      await page.setRequestInterception(true);
+      page.on('request', (request) => {
+        if (['image', 'stylesheet', 'font', 'media'].includes(request.resourceType())) {
+          request.abort();
+        } else {
+          request.continue();
+        }
+      });
+      
+      // Realtor.com search URL format
+      const searchUrl = `https://www.realtor.com/realestateandhomes-search/10mi-radius/${lat},${lng}/type-land/sby-1`;
+      
+      console.log(`Navigating to: ${searchUrl}`);
+      await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+      
+      // Wait for search results to load
+      await page.waitForSelector('[data-testid="property-list"]', { timeout: 60000 });
+      
+      // Extract property data
+      const propertyData = await page.evaluate(() => {
+        const properties = [];
+        const propertyCards = document.querySelectorAll('[data-testid="property-card"]');
+        
+        propertyCards.forEach(card => {
+          try {
+            const priceElement = card.querySelector('[data-testid="card-price"]');
+            const addressElement = card.querySelector('[data-testid="card-address"]');
+            const detailsElement = card.querySelector('[data-testid="card-lot-size"]');
+            const linkElement = card.querySelector('a[data-testid="card-link"]');
+            
+            if (priceElement && addressElement) {
+              const price = priceElement.textContent.trim();
+              const address = addressElement.textContent.trim();
+              const details = detailsElement ? detailsElement.textContent.trim() : '';
+              const link = linkElement ? linkElement.getAttribute('href') : '';
+              
+              // Parse area from details
+              let area = null;
+              const areaMatch = details.match(/([0-9.,]+)\s+acres?|([0-9.,]+)\s+sqft/i);
+              if (areaMatch) {
+                // Handle acres vs square feet
+                if (areaMatch[1]) {
+                  // Convert acres to square feet
+                  area = parseFloat(areaMatch[1].replace(/,/g, '')) * 43560;
+                } else if (areaMatch[2]) {
+                  area = parseInt(areaMatch[2].replace(/,/g, ''));
+                }
+              }
+              
+              // Get zoning information if available
+              const zoningElement = card.querySelector('[data-testid="card-zoning"]');
+              const zoning = zoningElement ? zoningElement.textContent.trim().toLowerCase() : 'unknown';
+              
+              properties.push({
+                price: parseFloat(price.replace(/[^0-9.]/g, '')),
+                address,
+                details,
+                area,
+                zoning,
+                sourceUrl: link.startsWith('http') ? link : `https://www.realtor.com${link}`,
+                source: 'Realtor'
+              });
+            }
+          } catch (error) {
+            console.error('Error parsing Realtor property card:', error);
+          }
+        });
+        
+        return properties;
+      });
+      
+      console.log(`Found ${propertyData.length} properties on Realtor.com`);
+      
+      // Process and save each property
+      for (const property of propertyData) {
+        await this.processAndSaveProperty(property, lat, lng);
+      }
+      
+      await page.close();
+      
+    } catch (error) {
+      console.error('Error scraping from Realtor.com:', error);
+      fs.appendFileSync(
+        path.join(__dirname, '../logs/errors.log'),
+        `[${new Date().toISOString()}] Error scraping from Realtor: ${error.message}\n`
+      );
+      throw error;
+    }
   }
   
   async scrapeFromLandWatch(address, radius) {
-    // Implementation for LandWatch
-    console.log('LandWatch scraping would be implemented here');
-    // Implementation would follow similar pattern to Zillow scraper
-  }
+    try {
+      const page = await this.browser.newPage();
+      
+      // Set user agent
+      await page.setUserAgent(this.getRandomUserAgent());
+      
+      // Intercept requests to avoid unnecessary resources
+      await page.setRequestInterception(true);
+      page.on('request', (request) => {
+        if (['image', 'stylesheet', 'font', 'media'].includes(request.resourceType())) {
+          request.abort();
+        } else {
+          request.continue();
+        }
+      });
+      
+      // LandWatch search URL format - use address location
+      const encodedAddress = encodeURIComponent(address);
+      const searchUrl = `https://www.landwatch.com/land-for-sale/in-${encodedAddress}`;
+      
+      console.log(`Navigating to: ${searchUrl}`);
+      await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+      
+      // Wait for search results to load
+      await page.waitForSelector('.property-card', { timeout: 60000 });
+      
+      // Extract property data
+      const propertyData = await page.evaluate(() => {
+        const properties = [];
+        const propertyCards = document.querySelectorAll('.property-card');
+        
+        propertyCards.forEach(card => {
+          try {
+            const priceElement = card.querySelector('.price');
+            const addressElement = card.querySelector('.address');
+            const detailsElement = card.querySelector('.details');
+            const linkElement = card.querySelector('a.property-card-link');
+            
+            if (priceElement && addressElement) {
+              const price = priceElement.textContent.trim();
+              const address = addressElement.textContent.trim();
+              const details = detailsElement ? detailsElement.textContent.trim() : '';
+              const link = linkElement ? linkElement.getAttribute('href') : '';
+              
+              // Parse area from details
+              let area = null;
+              const areaMatch = details.match(/([0-9.,]+)\s+acres?|([0-9.,]+)\s+sqft/i);
+              if (areaMatch) {
+                // Handle acres vs square feet
+                if (areaMatch[1]) {
+                  // Convert acres to square feet
+                  area = parseFloat(areaMatch[1].replace(/,/g, '')) * 43560;
+                } else if (areaMatch[2]) {
+                  area = parseInt(areaMatch[2].replace(/,/g, ''));
+                }
+              }
+              
+              // Check for features
+              const featureText = details.toLowerCase();
+              const nearWater = featureText.includes('water') || featureText.includes('lake') || 
+                                featureText.includes('river') || featureText.includes('creek');
+              const roadAccess = !featureText.includes('no road access');
+              const utilities = featureText.includes('utilities') || featureText.includes('electric') || 
+                                featureText.includes('water service');
+                                
+              // Try to identify zoning
+              let zoning = 'unknown';
+              if (featureText.includes('residential')) zoning = 'residential';
+              else if (featureText.includes('commercial')) zoning = 'commercial';
+              else if (featureText.includes('agricultural')) zoning = 'agricultural';
+              else if (featureText.includes('industrial')) zoning = 'industrial';
+              
+              properties.push({
+                price: parseFloat(price.replace(/[^0-9.]/g, '')),
+                address,
+                details,
+                area,
+                zoning,
+                features: {
+                  nearWater,
+                  roadAccess,
+                  utilities
+                },
+                sourceUrl: link.startsWith('http') ? link : `https://www.landwatch.com${link}`,
+                source: 'LandWatch'
+              });
+            }
+          } catch (error) {
+            console.error('Error parsing LandWatch property card:', error);
+          }
+        });
+        
+        return properties;
+      });
+      
+      console.log(`Found ${propertyData.length} properties on LandWatch`);
+      
+      // Process and save each property
+      for (const property of propertyData) {
+        await this.processAndSaveProperty(property, 0, 0); // Let geocoding handle coordinates
+      }
+      
+      await page.close();
+      
+    } catch (error) {
+      console.error('Error scraping from LandWatch:', error);
+      fs.appendFileSync(
+        path.join(__dirname, '../logs/errors.log'),
+        `[${new Date().toISOString()}] Error scraping from LandWatch: ${error.message}\n`
+      );
+      throw error;
+    }
+    }
   
   async scrapeFromAPI(source, lat, lng, radius) {
     if (source.name === 'CountyRecords') {
