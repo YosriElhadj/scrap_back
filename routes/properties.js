@@ -1,4 +1,4 @@
-// routes/properties.js - ENHANCED VERSION
+// routes/properties.js - FIXED VERSION
 const express = require('express');
 const router = express.Router();
 const Property = require('../models/Property');
@@ -26,6 +26,8 @@ router.get('/nearby', async (req, res) => {
     const parsedLng = parseFloat(lng);
     const parsedRadius = parseInt(radius);
     const parsedLimit = parseInt(limit);
+
+    console.log(`Searching for properties near [${parsedLat}, ${parsedLng}] with radius ${parsedRadius}m`);
 
     // Find properties near the location
     let properties = await Property.find({
@@ -64,6 +66,9 @@ router.get('/nearby', async (req, res) => {
         const scraper = new PropertyDataScraper();
         await scraper.initialize();
         
+        // Create sample properties immediately for this location
+        await scraper.createSampleProperties(parsedLat, parsedLng, locationName);
+        
         // Run the scrape in the background
         scraper.scrape(locationName, Math.ceil(parsedRadius / 1000)).catch(err => {
           console.error('Background scrape error:', err);
@@ -99,18 +104,37 @@ router.get('/nearby', async (req, res) => {
               resolve();
             });
           });
-          
-          // Try to fetch properties again
-          properties = await Property.find().limit(parsedLimit);
         }
+        
+        // Try to fetch properties again
+        properties = await Property.find({
+          location: {
+            $near: {
+              $geometry: {
+                type: 'Point',
+                coordinates: [parsedLng, parsedLat]
+              },
+              $maxDistance: parsedRadius
+            }
+          }
+        }).limit(parsedLimit);
+        
+        console.log(`After scraping, found ${properties.length} properties`);
       } catch (error) {
         console.error('Error in on-demand scraping:', error);
       }
     }
 
-    // IMPORTANT: Return properties as a JSON array (not wrapped in an object)
-    // This matches what the Flutter app expects
-    res.json(properties.length > 0 ? properties : []);
+    // If still no properties found, find any properties in the database
+    if (properties.length === 0) {
+      console.log('Still no properties found, returning any available properties');
+      properties = await Property.find().limit(parsedLimit);
+      console.log(`Found ${properties.length} total properties in database`);
+    }
+
+    // IMPORTANT: The mobile app expects arrays, so ensure we return an array
+    // This is the main fix - always returning a JSON array
+    res.json(properties);
   } catch (error) {
     console.error('Error fetching nearby properties:', error);
     res.status(500).json({ 
@@ -163,35 +187,43 @@ router.get('/search', async (req, res) => {
       }
     }).limit(20);
 
-    // If no properties found, trigger a background scrape
+    // If no properties found, trigger a background scrape and create sample properties immediately
     if (properties.length === 0) {
-      console.log(`No properties found near ${address}, triggering background scrape`);
+      console.log(`No properties found near ${address}, creating sample properties`);
       
       try {
-        // Initialize and run scraper for this location in the background
+        // Initialize scraper
         const scraper = new PropertyDataScraper();
         await scraper.initialize();
         
-        // Run the scrape in the background without waiting for it to complete
+        // Create sample properties immediately
+        await scraper.createSampleProperties(location.lat, location.lng, response.data.results[0].formatted_address);
+        
+        // Run the scrape in the background
         scraper.scrape(address, 5).catch(err => {
           console.error('Background scrape error:', err);
         });
         
-        // Check for initial data
-        const initialDataPath = path.join(__dirname, '../.initial-data-added');
-        const hasInitialData = fs.existsSync(initialDataPath);
-        
-        if (!hasInitialData) {
-          // Run the initial data script
-          const { spawn } = require('child_process');
-          spawn('node', [path.join(__dirname, '../scripts/addInitialData.js')]);
-          
-          // Get some properties to return anyway
-          properties = await Property.find().limit(20);
-        }
+        // Try to fetch properties again
+        properties = await Property.find({
+          location: {
+            $near: {
+              $geometry: {
+                type: 'Point',
+                coordinates: [location.lng, location.lat]
+              },
+              $maxDistance: 5000
+            }
+          }
+        }).limit(20);
       } catch (error) {
         console.error('Error in background scraping:', error);
       }
+    }
+
+    // If still no properties, return any properties in the database
+    if (properties.length === 0) {
+      properties = await Property.find().limit(20);
     }
 
     res.json({
