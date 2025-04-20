@@ -1,8 +1,11 @@
-// routes/properties.js - FIXED VERSION
+// routes/properties.js - ENHANCED VERSION
 const express = require('express');
 const router = express.Router();
 const Property = require('../models/Property');
 const { Client } = require('@googlemaps/google-maps-services-js');
+const PropertyDataScraper = require('../scrapers/propertyDataScraper');
+const fs = require('fs');
+const path = require('path');
 
 // Set up Google Maps client
 const googleMapsClient = new Client({});
@@ -19,21 +22,95 @@ router.get('/nearby', async (req, res) => {
       });
     }
 
-    const properties = await Property.find({
+    const parsedLat = parseFloat(lat);
+    const parsedLng = parseFloat(lng);
+    const parsedRadius = parseInt(radius);
+    const parsedLimit = parseInt(limit);
+
+    // Find properties near the location
+    let properties = await Property.find({
       location: {
         $near: {
           $geometry: {
             type: 'Point',
-            coordinates: [parseFloat(lng), parseFloat(lat)]
+            coordinates: [parsedLng, parsedLat]
           },
-          $maxDistance: parseInt(radius)
+          $maxDistance: parsedRadius
         }
       }
-    }).limit(parseInt(limit));
+    }).limit(parsedLimit);
 
-    // IMPORTANT: Return the properties as a JSON array, not wrapped in an object
+    console.log(`Found ${properties.length} properties near [${parsedLat}, ${parsedLng}]`);
+    
+    // If no properties found, trigger an immediate scrape for this location
+    if (properties.length === 0) {
+      console.log(`No properties found near [${parsedLat}, ${parsedLng}], triggering on-demand scraper`);
+      
+      try {
+        // Determine location name by reverse geocoding
+        const geocodeResponse = await googleMapsClient.reverseGeocode({
+          params: {
+            latlng: `${parsedLat},${parsedLng}`,
+            key: process.env.GOOGLE_MAPS_API_KEY
+          }
+        });
+        
+        let locationName = `${parsedLat},${parsedLng}`;
+        if (geocodeResponse.data.results.length > 0) {
+          locationName = geocodeResponse.data.results[0].formatted_address;
+        }
+        
+        // Initialize and run scraper for this location
+        const scraper = new PropertyDataScraper();
+        await scraper.initialize();
+        
+        // Run the scrape in the background
+        scraper.scrape(locationName, Math.ceil(parsedRadius / 1000)).catch(err => {
+          console.error('Background scrape error:', err);
+        });
+        
+        // Log the on-demand scrape
+        fs.appendFileSync(
+          path.join(__dirname, '../logs/scraping.log'),
+          `[${new Date().toISOString()}] On-demand scrape triggered for ${locationName}\n`
+        );
+        
+        // Check for initial data in case this is a first-time user
+        const initialDataPath = path.join(__dirname, '../.initial-data-added');
+        const hasInitialData = fs.existsSync(initialDataPath);
+        
+        if (!hasInitialData) {
+          // Run the initial data script
+          const { spawn } = require('child_process');
+          const addInitialDataProcess = spawn('node', [path.join(__dirname, '../scripts/addInitialData.js')]);
+          
+          addInitialDataProcess.stdout.on('data', (data) => {
+            console.log(`Initial data script: ${data}`);
+          });
+          
+          addInitialDataProcess.stderr.on('data', (data) => {
+            console.error(`Initial data script error: ${data}`);
+          });
+          
+          // Wait for the script to complete
+          await new Promise((resolve) => {
+            addInitialDataProcess.on('close', (code) => {
+              console.log(`Initial data script exited with code ${code}`);
+              resolve();
+            });
+          });
+          
+          // Try to fetch properties again
+          properties = await Property.find().limit(parsedLimit);
+        }
+      } catch (error) {
+        console.error('Error in on-demand scraping:', error);
+      }
+    }
+
+    // IMPORTANT: Return properties as a JSON array (not wrapped in an object)
     // This matches what the Flutter app expects
-    res.json(properties);
+    res.json(properties.length > 0 ? properties : []);
   } catch (error) {
     console.error('Error fetching nearby properties:', error);
     res.status(500).json({ 
@@ -74,7 +151,7 @@ router.get('/search', async (req, res) => {
     const location = response.data.results[0].geometry.location;
     
     // Find properties near the geocoded location
-    const properties = await Property.find({
+    let properties = await Property.find({
       location: {
         $near: {
           $geometry: {
@@ -86,13 +163,44 @@ router.get('/search', async (req, res) => {
       }
     }).limit(20);
 
+    // If no properties found, trigger a background scrape
+    if (properties.length === 0) {
+      console.log(`No properties found near ${address}, triggering background scrape`);
+      
+      try {
+        // Initialize and run scraper for this location in the background
+        const scraper = new PropertyDataScraper();
+        await scraper.initialize();
+        
+        // Run the scrape in the background without waiting for it to complete
+        scraper.scrape(address, 5).catch(err => {
+          console.error('Background scrape error:', err);
+        });
+        
+        // Check for initial data
+        const initialDataPath = path.join(__dirname, '../.initial-data-added');
+        const hasInitialData = fs.existsSync(initialDataPath);
+        
+        if (!hasInitialData) {
+          // Run the initial data script
+          const { spawn } = require('child_process');
+          spawn('node', [path.join(__dirname, '../scripts/addInitialData.js')]);
+          
+          // Get some properties to return anyway
+          properties = await Property.find().limit(20);
+        }
+      } catch (error) {
+        console.error('Error in background scraping:', error);
+      }
+    }
+
     res.json({
       geocodedLocation: {
         lat: location.lat,
         lng: location.lng,
         formattedAddress: response.data.results[0].formatted_address
       },
-      properties
+      properties: properties
     });
   } catch (error) {
     console.error('Error searching properties:', error);

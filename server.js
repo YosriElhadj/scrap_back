@@ -9,6 +9,8 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const fs = require('fs');
+const Property = require('./models/Property');
+const { spawn } = require('child_process');
 
 // Load routes
 const propertiesRoutes = require('./routes/properties');
@@ -58,6 +60,108 @@ if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
 
+// Create scripts directory if it doesn't exist
+const scriptsDir = path.join(__dirname, 'scripts');
+if (!fs.existsSync(scriptsDir)) {
+  fs.mkdirSync(scriptsDir, { recursive: true });
+  
+  // Copy the addInitialData.js script if it doesn't exist
+  const scriptPath = path.join(scriptsDir, 'addInitialData.js');
+  if (!fs.existsSync(scriptPath)) {
+    try {
+      // Create a minimal version
+      const scriptContent = `
+// scripts/addInitialData.js
+const mongoose = require('mongoose');
+const dotenv = require('dotenv');
+const path = require('path');
+const Property = require('../models/Property');
+const fs = require('fs');
+
+// Load environment variables
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
+async function connectToDatabase() {
+  try {
+    console.log('Connecting to MongoDB...');
+    await mongoose.connect(process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/land-valuation");
+    console.log('Connected to MongoDB successfully');
+  } catch (error) {
+    console.error('Failed to connect to MongoDB:', error);
+    process.exit(1);
+  }
+}
+
+async function addInitialData() {
+  try {
+    await connectToDatabase();
+    
+    // Check if database already has properties
+    const propertyCount = await Property.countDocuments();
+    console.log(\`Current property count: \${propertyCount}\`);
+    
+    if (propertyCount > 0) {
+      console.log('Database already has properties. Skipping initial data import.');
+      process.exit(0);
+    }
+    
+    console.log('Adding initial properties...');
+    
+    // Add a few simple properties to get started
+    const initialProperties = [
+      {
+        address: "123 Sample St",
+        city: "Austin",
+        state: "TX",
+        zipCode: "78701",
+        price: 250000,
+        area: 43560, // 1 acre
+        pricePerSqFt: 250000 / 43560,
+        zoning: "residential",
+        features: {
+          nearWater: false,
+          roadAccess: true,
+          utilities: true
+        },
+        description: "Sample property for initial database setup.",
+        location: {
+          type: "Point",
+          coordinates: [-97.7430608, 30.267153]
+        },
+        lastUpdated: new Date(),
+        listedDate: new Date()
+      }
+    ];
+    
+    // Insert the property
+    await Property.insertMany(initialProperties);
+    
+    console.log('Added initial properties to the database');
+    
+    // Create a marker file to indicate initial data has been added
+    fs.writeFileSync(path.join(__dirname, '../.initial-data-added'), new Date().toISOString());
+    
+  } catch (error) {
+    console.error('Error adding initial data:', error);
+  } finally {
+    await mongoose.connection.close();
+    console.log('Database connection closed');
+    process.exit(0);
+  }
+}
+
+// Run the function
+addInitialData();
+      `;
+      
+      fs.writeFileSync(scriptPath, scriptContent);
+      console.log('Created addInitialData.js script');
+    } catch (error) {
+      console.error('Error creating initial data script:', error);
+    }
+  }
+}
+
 // Simple request logger since morgan isn't installed
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
@@ -70,15 +174,41 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// MongoDB connection with better error handling
-mongoose.connect(process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/land-valuation", {
-  // No need for useNewUrlParser and useUnifiedTopology in newer versions of Mongoose
-})
-.then(() => console.log('MongoDB connected'))
-.catch(err => {
-  console.error('MongoDB connection error:', err);
-  process.exit(1); // Exit if DB connection fails
-});
+// Check if database has initial data
+async function checkAndAddInitialData() {
+  try {
+    // Check database connection first
+    if (mongoose.connection.readyState !== 1) {
+      console.log('Database not connected yet, skipping initial data check');
+      return;
+    }
+    
+    // Count properties
+    const propertyCount = await Property.countDocuments();
+    console.log(`Current property count: ${propertyCount}`);
+    
+    if (propertyCount === 0) {
+      console.log('No properties found in database, running initial data script');
+      
+      // Run the initial data script
+      const addInitialDataProcess = spawn('node', [path.join(__dirname, 'scripts/addInitialData.js')]);
+      
+      addInitialDataProcess.stdout.on('data', (data) => {
+        console.log(`Initial data script: ${data}`);
+      });
+      
+      addInitialDataProcess.stderr.on('data', (data) => {
+        console.error(`Initial data script error: ${data}`);
+      });
+      
+      addInitialDataProcess.on('close', (code) => {
+        console.log(`Initial data script exited with code ${code}`);
+      });
+    }
+  } catch (error) {
+    console.error('Error checking for initial data:', error);
+  }
+}
 
 // API Routes
 app.use('/api/properties', propertiesRoutes);
@@ -92,7 +222,7 @@ app.get('/api/health', (req, res) => {
     status: 'ok', 
     message: 'Land Valuation API is running',
     dbStatus,
-    apiVersion: '1.0.0',
+    apiVersion: '1.1.0',
     timestamp: new Date().toISOString()
   });
 });
@@ -110,6 +240,20 @@ process.on('uncaughtException', (err) => {
     path.join(logsDir, 'errors.log'),
     `[${new Date().toISOString()}] Uncaught Exception: ${err.message}\n${err.stack}\n`
   );
+});
+
+// MongoDB connection with better error handling
+mongoose.connect(process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/land-valuation", {
+  // No need for useNewUrlParser and useUnifiedTopology in newer versions of Mongoose
+})
+.then(() => {
+  console.log('MongoDB connected');
+  // Check for initial data once DB is connected
+  checkAndAddInitialData();
+})
+.catch(err => {
+  console.error('MongoDB connection error:', err);
+  process.exit(1); // Exit if DB connection fails
 });
 
 // Start server
