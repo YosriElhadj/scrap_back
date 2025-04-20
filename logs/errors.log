@@ -11,3 +11,27 @@
 [2025-04-20T17:18:14.079Z] Error scraping from Realtor: net::ERR_NO_SUPPORTED_PROXIES at https://www.realtor.com/realestateandhomes-search/10mi-radius/36.88507329999999,10.1613861/type-land/sby-1
 [2025-04-20T17:18:19.153Z] Error scraping from LandWatch: net::ERR_NO_SUPPORTED_PROXIES at https://www.landwatch.com/land-for-sale/in-V5P6%2B2HJ%2C%20Ariana%2C%20Tunisia
 [2025-04-20T17:18:19.155Z] Error scraping from LandWatch: net::ERR_NO_SUPPORTED_PROXIES at https://www.landwatch.com/land-for-sale/in-V5P6%2B2HJ%2C%20Ariana%2C%20Tunisia
+[2025-04-20T17:46:15.781Z] Error scraping from Zillow: this.browser.createIncognitoBrowserContext is not a function
+[2025-04-20T17:46:45.788Z] Error scraping from Realtor: this.browser.createIncognitoBrowserContext is not a function
+[2025-04-20T17:47:15.812Z] Error scraping from LandWatch: this.browser.createIncognitoBrowserContext is not a function
+[2025-04-20T17:48:04.750Z] NotFoundError: No comparable properties found in this area
+  Request: POST /api/valuation/estimate
+  Stack: NotFoundError: No comparable properties found in this area
+    at C:\Users\elhad\OneDrive\Desktop\land-scraper-backend\routes\valuation.js:93:15
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+
+[2025-04-20T17:50:44.636Z] Error scraping from Zillow: this.browser.createIncognitoBrowserContext is not a function
+[2025-04-20T17:51:14.659Z] Error scraping from Realtor: this.browser.createIncognitoBrowserContext is not a function
+[2025-04-20T17:52:26.496Z] Error scraping from Zillow: context.newPage is not a function
+[2025-04-20T17:52:56.612Z] Error scraping from Realtor: context.newPage is not a function
+[2025-04-20T17:53:26.688Z] Error scraping from LandWatch: context.newPage is not a function
+[2025-04-20T17:55:28.130Z] Error scraping from Zillow: context is not defined
+[2025-04-20T17:55:58.151Z] Error scraping from Realtor: context is not defined
+[2025-04-20T17:57:05.633Z] Error scraping from Zillow: browser is not defined
+[2025-04-20T17:57:35.650Z] Error scraping from Realtor: browser is not defined
+[2025-04-20T17:59:55.948Z] NotFoundError: No comparable properties found in this area
+  Request: POST /api/valuation/estimate
+  Stack: NotFoundError: No comparable properties found in this area
+    at C:\Users\elhad\OneDrive\Desktop\land-scraper-backend\routes\valuation.js:93:15
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+

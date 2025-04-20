@@ -1,5 +1,4 @@
-// middleware/errorHandler.js
-
+// middleware/errorHandler.js - SIMPLIFIED VERSION
 const fs = require('fs');
 const path = require('path');
 
@@ -34,17 +33,16 @@ if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
 
-// Error logger
+// Error logger - simplified version
 const logError = (err, req) => {
   const timestamp = new Date().toISOString();
   const logMessage = `[${timestamp}] ${err.name}: ${err.message}\n`;
   const requestInfo = `  Request: ${req.method} ${req.originalUrl}\n`;
-  const userAgent = `  User-Agent: ${req.get('user-agent')}\n`;
   const stackTrace = `  Stack: ${err.stack}\n\n`;
   
   fs.appendFileSync(
     path.join(logsDir, 'errors.log'),
-    logMessage + requestInfo + userAgent + stackTrace
+    logMessage + requestInfo + stackTrace
   );
 };
 
@@ -55,12 +53,7 @@ const errorHandler = (err, req, res, next) => {
   
   // Set default status code and message
   const statusCode = err.statusCode || 500;
-  let errorMessage = err.message || 'Internal Server Error';
-  
-  // In production, don't expose error details for 500 errors
-  if (process.env.NODE_ENV === 'production' && statusCode === 500) {
-    errorMessage = 'An unexpected error occurred';
-  }
+  const errorMessage = err.message || 'Internal Server Error';
   
   // Return error response
   res.status(statusCode).json({

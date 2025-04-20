@@ -8,8 +8,6 @@ dotenv.config({ path: path.resolve(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
-const helmet = require('helmet'); // Added for security
-const morgan = require('morgan'); // Added for logging
 const fs = require('fs');
 
 // Load routes
@@ -17,8 +15,39 @@ const propertiesRoutes = require('./routes/properties');
 const valuationRoutes = require('./routes/valuation');
 const scrapingRoutes = require('./routes/scraping');
 
-// Load error handlers
-const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
+// Load error handler (create a minimal version if it doesn't exist)
+let errorHandler, notFoundHandler;
+
+try {
+  const errorHandlers = require('./middleware/errorHandler');
+  errorHandler = errorHandlers.errorHandler;
+  notFoundHandler = errorHandlers.notFoundHandler;
+} catch (error) {
+  console.log('Error handler middleware not found, using default handlers');
+  
+  // Simple error handler
+  errorHandler = (err, req, res, next) => {
+    console.error(err);
+    res.status(err.statusCode || 500).json({
+      success: false,
+      error: {
+        message: err.message || 'Server Error',
+        type: err.name || 'Error'
+      }
+    });
+  };
+  
+  // Simple 404 handler
+  notFoundHandler = (req, res) => {
+    res.status(404).json({
+      success: false,
+      error: {
+        message: `Route not found: ${req.originalUrl}`,
+        type: 'NotFoundError'
+      }
+    });
+  };
+}
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -29,15 +58,17 @@ if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
 
-// Create request log stream
-const accessLogStream = fs.createWriteStream(path.join(logsDir, 'access.log'), { flags: 'a' });
+// Simple request logger since morgan isn't installed
+app.use((req, res, next) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] ${req.method} ${req.url}`);
+  next();
+});
 
 // Middleware
-app.use(helmet()); // Secure HTTP headers
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(morgan('combined', { stream: accessLogStream })); // Log all requests
 
 // MongoDB connection with better error handling
 mongoose.connect(process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/land-valuation", {
@@ -72,9 +103,24 @@ app.use(notFoundHandler);
 // Error handling middleware
 app.use(errorHandler);
 
+// Basic error handler for unhandled errors
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  fs.appendFileSync(
+    path.join(logsDir, 'errors.log'),
+    `[${new Date().toISOString()}] Uncaught Exception: ${err.message}\n${err.stack}\n`
+  );
+});
+
+// Start server
+const server = app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`API available at http://localhost:${PORT}/api`);
+});
+
 // Graceful shutdown
-process.on('SIGTERM', shutDown);
-process.on('SIGINT', shutDown);
+process.on('SIGTERM', () => shutDown());
+process.on('SIGINT', () => shutDown());
 
 function shutDown() {
   console.log('Received kill signal, shutting down gracefully');
@@ -96,9 +142,3 @@ function shutDown() {
     process.exit(1);
   }, 10000);
 }
-
-// Start server
-const server = app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`API available at http://localhost:${PORT}/api`);
-});
