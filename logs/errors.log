@@ -1,0 +1,1 @@
+[2025-04-20T16:05:40.797Z] Error scraping from Zillow: net::ERR_NO_SUPPORTED_PROXIES at https://www.zillow.com/homes/for_sale/?searchQueryState={"mapBounds":{"west":10.0613861,"east":10.2613861,"south":36.785073299999986,"north":36.98507329999999},"isMapVisible":true,"filterState":{"isLot":{"value":true},"isManuLand":{"value":false}},"isListVisible":true,"mapZoom":12}
