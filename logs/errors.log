@@ -35,3 +35,9 @@
     at C:\Users\elhad\OneDrive\Desktop\land-scraper-backend\routes\valuation.js:93:15
     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
 
+[2025-04-20T18:10:06.750Z] NotFoundError: No comparable properties found in this area
+  Request: POST /api/valuation/estimate
+  Stack: NotFoundError: No comparable properties found in this area
+    at C:\Users\elhad\OneDrive\Desktop\land-scraper-backend\routes\valuation.js:93:15
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+
