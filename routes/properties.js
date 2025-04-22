@@ -1,10 +1,8 @@
-// routes/properties.js - OPTIMIZED VERSION (NO SCRAPING)
+// routes/properties.js - OPTIMIZED VERSION
 const express = require('express');
 const router = express.Router();
 const Property = require('../models/Property');
 const { Client } = require('@googlemaps/google-maps-services-js');
-const fs = require('fs');
-const path = require('path');
 
 // Set up Google Maps client
 const googleMapsClient = new Client({});
@@ -62,9 +60,52 @@ router.get('/nearby', async (req, res) => {
       console.log(`Found ${properties.length} properties with wider radius`);
     }
 
+    // If still no properties found with geospatial query, try finding by governorate
+    if (properties.length === 0) {
+      console.log('Still no properties found with geospatial query, trying governorate-based search');
+      
+      // Reverse geocode to get governorate/city
+      try {
+        const geocodeResponse = await googleMapsClient.reverseGeocode({
+          params: {
+            latlng: `${parsedLat},${parsedLng}`,
+            key: process.env.GOOGLE_MAPS_API_KEY
+          }
+        });
+        
+        let governorate = null;
+        if (geocodeResponse.data.results.length > 0) {
+          // Extract administrative area (could be city or governorate)
+          for (const component of geocodeResponse.data.results[0].address_components) {
+            if (component.types.includes('administrative_area_level_1') || 
+                component.types.includes('locality')) {
+              governorate = component.long_name;
+              break;
+            }
+          }
+        }
+        
+        if (governorate) {
+          console.log(`Found governorate: ${governorate}, searching by text match`);
+          // Try text search by governorate
+          properties = await Property.find({
+            $or: [
+              { governorate: { $regex: governorate, $options: 'i' } },
+              { city: { $regex: governorate, $options: 'i' } },
+              { address: { $regex: governorate, $options: 'i' } }
+            ]
+          }).limit(parsedLimit);
+          
+          console.log(`Found ${properties.length} properties by governorate text search`);
+        }
+      } catch (geocodeError) {
+        console.error('Error during reverse geocoding:', geocodeError);
+      }
+    }
+
     // If still no properties found, return any properties in the database
     if (properties.length === 0) {
-      console.log('Still no properties found, returning any available properties');
+      console.log('No properties found by any criteria, returning any available properties');
       properties = await Property.find().limit(parsedLimit);
       console.log(`Found ${properties.length} total properties in database`);
     }
@@ -123,7 +164,30 @@ router.get('/search', async (req, res) => {
       }
     }).limit(20);
 
-    // If no properties found, try a wider search
+    // If no properties found with geospatial query, try text search
+    if (properties.length === 0) {
+      // Extract administrative area (city/governorate) from geocoded address
+      let administrativeArea = null;
+      for (const component of response.data.results[0].address_components) {
+        if (component.types.includes('administrative_area_level_1') || 
+            component.types.includes('locality')) {
+          administrativeArea = component.long_name;
+          break;
+        }
+      }
+      
+      if (administrativeArea) {
+        properties = await Property.find({
+          $or: [
+            { governorate: { $regex: administrativeArea, $options: 'i' } },
+            { city: { $regex: administrativeArea, $options: 'i' } },
+            { address: { $regex: administrativeArea, $options: 'i' } }
+          ]
+        }).limit(20);
+      }
+    }
+
+    // If still no properties, try a wider search
     if (properties.length === 0) {
       properties = await Property.find({
         location: {
