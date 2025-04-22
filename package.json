@@ -18,7 +18,8 @@
     "helmet": "^8.1.0",
     "mongoose": "^8.13.2",
     "morgan": "^1.10.0",
-    "puppeteer": "^24.6.1"
+    "puppeteer": "^24.6.1",
+    "user-agents": "^1.1.515"
   },
   "devDependencies": {
     "nodemon": "^2.0.20"

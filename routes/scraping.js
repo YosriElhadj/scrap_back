@@ -1,4 +1,4 @@
-// routes/scraping.js - UPDATED
+// routes/scraping.js - UPDATED FOR TAYARA
 const express = require('express');
 const router = express.Router();
 const { Client } = require('@googlemaps/google-maps-services-js');
@@ -102,6 +102,9 @@ async function startScrapingJob(jobId, location, radius) {
       status: 'running',
       message: 'Scraping in progress',
     });
+    
+    // Debug the PropertyDataScraper type
+    console.log('PropertyDataScraper type:', typeof PropertyDataScraper);
     
     // Initialize the scraper
     const scraper = new PropertyDataScraper();
@@ -215,6 +218,41 @@ router.get('/logs', (req, res, next) => {
       errorLogs,
       activeJobs: Array.from(activeJobs.entries()).map(([id, job]) => ({ id, ...job }))
     });
+    
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Add a direct run route for immediate Python scraping
+router.post('/run-python', async (req, res, next) => {
+  try {
+    const { location } = req.body;
+    
+    if (!location) {
+      throw new ValidationError('Location is required');
+    }
+    
+    console.log('Running immediate Python scraper for:', location);
+    
+    // Initialize the scraper
+    const scraper = new PropertyDataScraper();
+    await scraper.initialize();
+    
+    // Run the Python scraper directly
+    const result = await scraper.runPythonScraper(location);
+    
+    if (result) {
+      res.json({
+        success: true,
+        message: 'Python scraper completed successfully'
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Python scraper failed'
+      });
+    }
     
   } catch (error) {
     next(error);

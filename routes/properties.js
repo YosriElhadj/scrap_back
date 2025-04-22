@@ -1,9 +1,8 @@
-// routes/properties.js - FIXED VERSION
+// routes/properties.js - OPTIMIZED VERSION (NO SCRAPING)
 const express = require('express');
 const router = express.Router();
 const Property = require('../models/Property');
 const { Client } = require('@googlemaps/google-maps-services-js');
-const PropertyDataScraper = require('../scrapers/propertyDataScraper');
 const fs = require('fs');
 const path = require('path');
 
@@ -44,96 +43,33 @@ router.get('/nearby', async (req, res) => {
 
     console.log(`Found ${properties.length} properties near [${parsedLat}, ${parsedLng}]`);
     
-    // If no properties found, trigger an immediate scrape for this location
+    // If no properties found, try a wider search
     if (properties.length === 0) {
-      console.log(`No properties found near [${parsedLat}, ${parsedLng}], triggering on-demand scraper`);
+      console.log(`No properties found near [${parsedLat}, ${parsedLng}], trying wider radius`);
       
-      try {
-        // Determine location name by reverse geocoding
-        const geocodeResponse = await googleMapsClient.reverseGeocode({
-          params: {
-            latlng: `${parsedLat},${parsedLng}`,
-            key: process.env.GOOGLE_MAPS_API_KEY
+      properties = await Property.find({
+        location: {
+          $near: {
+            $geometry: {
+              type: 'Point',
+              coordinates: [parsedLng, parsedLat]
+            },
+            $maxDistance: parsedRadius * 2 // Double the radius
           }
-        });
-        
-        let locationName = `${parsedLat},${parsedLng}`;
-        if (geocodeResponse.data.results.length > 0) {
-          locationName = geocodeResponse.data.results[0].formatted_address;
         }
-        
-        // Initialize and run scraper for this location
-        const scraper = new PropertyDataScraper();
-        await scraper.initialize();
-        
-        // Create sample properties immediately for this location
-        await scraper.createSampleProperties(parsedLat, parsedLng, locationName);
-        
-        // Run the scrape in the background
-        scraper.scrape(locationName, Math.ceil(parsedRadius / 1000)).catch(err => {
-          console.error('Background scrape error:', err);
-        });
-        
-        // Log the on-demand scrape
-        fs.appendFileSync(
-          path.join(__dirname, '../logs/scraping.log'),
-          `[${new Date().toISOString()}] On-demand scrape triggered for ${locationName}\n`
-        );
-        
-        // Check for initial data in case this is a first-time user
-        const initialDataPath = path.join(__dirname, '../.initial-data-added');
-        const hasInitialData = fs.existsSync(initialDataPath);
-        
-        if (!hasInitialData) {
-          // Run the initial data script
-          const { spawn } = require('child_process');
-          const addInitialDataProcess = spawn('node', [path.join(__dirname, '../scripts/addInitialData.js')]);
-          
-          addInitialDataProcess.stdout.on('data', (data) => {
-            console.log(`Initial data script: ${data}`);
-          });
-          
-          addInitialDataProcess.stderr.on('data', (data) => {
-            console.error(`Initial data script error: ${data}`);
-          });
-          
-          // Wait for the script to complete
-          await new Promise((resolve) => {
-            addInitialDataProcess.on('close', (code) => {
-              console.log(`Initial data script exited with code ${code}`);
-              resolve();
-            });
-          });
-        }
-        
-        // Try to fetch properties again
-        properties = await Property.find({
-          location: {
-            $near: {
-              $geometry: {
-                type: 'Point',
-                coordinates: [parsedLng, parsedLat]
-              },
-              $maxDistance: parsedRadius
-            }
-          }
-        }).limit(parsedLimit);
-        
-        console.log(`After scraping, found ${properties.length} properties`);
-      } catch (error) {
-        console.error('Error in on-demand scraping:', error);
-      }
+      }).limit(parsedLimit);
+      
+      console.log(`Found ${properties.length} properties with wider radius`);
     }
 
-    // If still no properties found, find any properties in the database
+    // If still no properties found, return any properties in the database
     if (properties.length === 0) {
       console.log('Still no properties found, returning any available properties');
       properties = await Property.find().limit(parsedLimit);
       console.log(`Found ${properties.length} total properties in database`);
     }
 
-    // IMPORTANT: The mobile app expects arrays, so ensure we return an array
-    // This is the main fix - always returning a JSON array
+    // IMPORTANT: The mobile app expects arrays, so ensure we return a JSON array
     res.json(properties);
   } catch (error) {
     console.error('Error fetching nearby properties:', error);
@@ -187,38 +123,19 @@ router.get('/search', async (req, res) => {
       }
     }).limit(20);
 
-    // If no properties found, trigger a background scrape and create sample properties immediately
+    // If no properties found, try a wider search
     if (properties.length === 0) {
-      console.log(`No properties found near ${address}, creating sample properties`);
-      
-      try {
-        // Initialize scraper
-        const scraper = new PropertyDataScraper();
-        await scraper.initialize();
-        
-        // Create sample properties immediately
-        await scraper.createSampleProperties(location.lat, location.lng, response.data.results[0].formatted_address);
-        
-        // Run the scrape in the background
-        scraper.scrape(address, 5).catch(err => {
-          console.error('Background scrape error:', err);
-        });
-        
-        // Try to fetch properties again
-        properties = await Property.find({
-          location: {
-            $near: {
-              $geometry: {
-                type: 'Point',
-                coordinates: [location.lng, location.lat]
-              },
-              $maxDistance: 5000
-            }
+      properties = await Property.find({
+        location: {
+          $near: {
+            $geometry: {
+              type: 'Point',
+              coordinates: [location.lng, location.lat]
+            },
+            $maxDistance: 10000 // 10km radius
           }
-        }).limit(20);
-      } catch (error) {
-        console.error('Error in background scraping:', error);
-      }
+        }
+      }).limit(20);
     }
 
     // If still no properties, return any properties in the database
@@ -260,6 +177,55 @@ router.get('/:id', async (req, res) => {
     
   } catch (error) {
     console.error('Error getting property by ID:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error', 
+      error: error.message 
+    });
+  }
+});
+
+// Add a new endpoint to get property stats by city/region
+router.get('/stats/by-region', async (req, res) => {
+  try {
+    // Aggregate properties by city and calculate averages
+    const stats = await Property.aggregate([
+      {
+        $group: {
+          _id: { 
+            city: '$city', 
+            state: '$state'
+          },
+          count: { $sum: 1 },
+          avgPrice: { $avg: '$price' },
+          minPrice: { $min: '$price' },
+          maxPrice: { $max: '$price' },
+          avgPricePerSqFt: { $avg: '$pricePerSqFt' }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          city: '$_id.city',
+          state: '$_id.state',
+          count: 1,
+          avgPrice: { $round: ['$avgPrice', 2] },
+          minPrice: { $round: ['$minPrice', 2] },
+          maxPrice: { $round: ['$maxPrice', 2] },
+          avgPricePerSqFt: { $round: ['$avgPricePerSqFt', 2] }
+        }
+      },
+      {
+        $sort: { count: -1 }
+      }
+    ]);
+    
+    res.json({
+      success: true,
+      stats
+    });
+  } catch (error) {
+    console.error('Error getting property stats:', error);
     res.status(500).json({ 
       success: false, 
       message: 'Server error', 
