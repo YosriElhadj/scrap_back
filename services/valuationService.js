@@ -1,4 +1,5 @@
-// services/valuationService.js - FIX FOR MISSING COMPARABLES
+// services/valuationService.js - WITH ETH SUPPORT
+const ethPriceService = require('./ethPriceService');
 
 /**
  * Calculate the estimated value of a land based on comparables and features
@@ -7,9 +8,12 @@
  * @param {Object} features - Features of the land (nearWater, roadAccess, utilities)
  * @returns {Object} Valuation result with estimated value and factors
  */
-function calculateLandValue(area, comparables, features) {
+async function calculateLandValue(area, comparables, features) {
     // Filter out any comparables with missing price or area
     const validComparables = comparables.filter(p => p.price && (p.pricePerSqFt || p.area > 0));
+    
+    // Get current ETH price for real-time conversion
+    const currentEthPrice = await ethPriceService.getEthPriceInTND();
     
     // Create fallback data if no valid comparables
     if (validComparables.length === 0) {
@@ -49,8 +53,11 @@ function calculateLandValue(area, comparables, features) {
       
       return {
         estimatedValue,
+        estimatedValueETH: estimatedValue / currentEthPrice, // Real-time ETH value
         avgPricePerSqFt: basePrice,
-        valuationFactors
+        avgPricePerSqFtETH: basePrice / currentEthPrice,
+        valuationFactors,
+        currentEthPriceTND: currentEthPrice
       };
     }
     
@@ -74,10 +81,13 @@ function calculateLandValue(area, comparables, features) {
       
       return {
         estimatedValue,
+        estimatedValueETH: estimatedValue / currentEthPrice,
         avgPricePerSqFt: basePrice,
+        avgPricePerSqFtETH: basePrice / currentEthPrice,
         valuationFactors: [
           { factor: 'Default Valuation', adjustment: 'Baseline' }
-        ]
+        ],
+        currentEthPriceTND: currentEthPrice
       };
     }
     
@@ -154,8 +164,11 @@ function calculateLandValue(area, comparables, features) {
       
       return {
         estimatedValue,
+        estimatedValueETH: estimatedValue / currentEthPrice,
         avgPricePerSqFt,
-        valuationFactors
+        avgPricePerSqFtETH: avgPricePerSqFt / currentEthPrice,
+        valuationFactors,
+        currentEthPriceTND: currentEthPrice
       };
     } else {
       // Simplified calculation for limited data
@@ -198,8 +211,11 @@ function calculateLandValue(area, comparables, features) {
       
       return {
         estimatedValue,
+        estimatedValueETH: estimatedValue / currentEthPrice,
         avgPricePerSqFt,
-        valuationFactors
+        avgPricePerSqFtETH: avgPricePerSqFt / currentEthPrice,
+        valuationFactors,
+        currentEthPriceTND: currentEthPrice
       };
     }
   }

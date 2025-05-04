@@ -1,4 +1,4 @@
-// models/Property.js - ENHANCED FOR TUNISIAN PROPERTIES
+// models/Property.js - ENHANCED FOR TUNISIAN PROPERTIES WITH ETH
 const mongoose = require('mongoose');
 
 // Define approximate coordinates for major Tunisian governorates
@@ -46,8 +46,11 @@ const PropertySchema = new mongoose.Schema({
   state: String, // This will store the Tunisian governorate
   zipCode: String,
   price: Number, // Price in Tunisian Dinar (TND)
+  priceInETH: Number, // ETH value at time of scraping
+  ethPriceAtScraping: Number, // ETH/TND exchange rate at scraping
   area: Number, // in square feet (converted from m² if needed)
   pricePerSqFt: Number,
+  pricePerSqFtETH: Number, // Price per square foot in ETH
   zoning: {
     type: String,
     enum: ['residential', 'commercial', 'agricultural', 'industrial', 'unknown'],
@@ -161,6 +164,12 @@ PropertySchema.virtual('priceUSD').get(function() {
   return this.price * conversionRate;
 });
 
+// Virtual property for real-time ETH value
+PropertySchema.virtual('currentPriceInETH').get(function() {
+  // This will be calculated using current ETH price in the service layer
+  return null; // Will be populated by the service
+});
+
 // Virtual property for area in square meters
 PropertySchema.virtual('areaInSqMeters').get(function() {
   // Convert square feet to square meters (1 sq ft ≈ 0.092903 sq m)
@@ -176,6 +185,14 @@ PropertySchema.virtual('areaInHectares').get(function() {
 // Helper for formatting price in TND
 PropertySchema.methods.formatPrice = function() {
   return `${this.price.toLocaleString()} TND`;
+};
+
+// Helper for formatting price in ETH
+PropertySchema.methods.formatPriceETH = function() {
+  if (this.priceInETH) {
+    return `${this.priceInETH.toFixed(4)} ETH`;
+  }
+  return 'N/A';
 };
 
 // Helper for calculating price per m²

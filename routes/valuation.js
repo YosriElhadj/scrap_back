@@ -1,9 +1,10 @@
-// routes/valuation.js - UPDATED
+// routes/valuation.js - WITH ETH SUPPORT
 const express = require('express');
 const router = express.Router();
 const Property = require('../models/Property');
 const { Client } = require('@googlemaps/google-maps-services-js');
 const valuationService = require('../services/valuationService');
+const ethPriceService = require('../services/ethPriceService');
 
 const googleMapsClient = new Client({});
 
@@ -182,11 +183,14 @@ router.post('/estimate', async (req, res) => {
     // Then calculate estimated value
     try {
       // Calculate estimated value using the valuation service
-      const valuationResult = valuationService.calculateLandValue(
+      const valuationResult = await valuationService.calculateLandValue(
         parsedArea, 
         comparables, 
         features
       );
+      
+      // Get current ETH price
+      const currentEthPrice = await ethPriceService.getEthPriceInTND();
       
       // Get address information for the location
       let geocodeResponse;
@@ -236,17 +240,26 @@ router.post('/estimate', async (req, res) => {
         },
         valuation: {
           estimatedValue: Math.round(valuationResult.estimatedValue) || 0,
+          estimatedValueETH: valuationResult.estimatedValueETH || 0,
+          currentEthValue: (valuationResult.estimatedValue / currentEthPrice) || 0,
           areaInSqFt: parsedArea || 0,
           avgPricePerSqFt: valuationResult.avgPricePerSqFt || 0,
+          avgPricePerSqFtETH: valuationResult.avgPricePerSqFtETH || 0,
           zoning: zoning || "residential",
-          valuationFactors: valuationResult.valuationFactors || []
+          valuationFactors: valuationResult.valuationFactors || [],
+          currentEthPriceTND: currentEthPrice
         },
         comparables: comparables.map(property => ({
           id: property._id || "",
           address: property.address || "Unknown",
           price: property.price || 0,
+          priceInETH: property.priceInETH || null, // Historical ETH value
+          currentPriceInETH: (property.price / currentEthPrice) || 0, // Real-time ETH value
           area: property.area || 0,
           pricePerSqFt: property.pricePerSqFt || 0,
+          pricePerSqFtETH: property.pricePerSqFtETH || null,
+          currentPricePerSqFtETH: property.pricePerSqFt ? 
+            (property.pricePerSqFt / currentEthPrice) : 0,
           features: {
             nearWater: property.features?.nearWater || false,
             roadAccess: property.features?.roadAccess || true,
@@ -270,13 +283,16 @@ router.post('/estimate', async (req, res) => {
         },
         valuation: {
           estimatedValue: Math.round(parsedArea * 20), // Simple estimate at 20 TND per sq ft
+          estimatedValueETH: (parsedArea * 20) / 7560, // Using fallback ETH price
           areaInSqFt: parsedArea,
           avgPricePerSqFt: 20,
+          avgPricePerSqFtETH: 20 / 7560,
           zoning: zoning,
           valuationFactors: [
             { factor: 'Default Estimation', adjustment: 'Baseline' },
             { factor: 'Limited Data', adjustment: 'Approximation only' }
-          ]
+          ],
+          currentEthPriceTND: 7560
         },
         comparables: []
       });
@@ -386,6 +402,9 @@ router.get('/trends', async (req, res) => {
     // Analyze price trends
     const trendAnalysis = valuationService.analyzePriceTrends(properties, timeFrame);
     
+    // Get current ETH price
+    const currentEthPrice = await ethPriceService.getEthPriceInTND();
+    
     res.json({
       success: true,
       location: {
@@ -395,7 +414,8 @@ router.get('/trends', async (req, res) => {
       },
       timeFrame,
       trendAnalysis,
-      sampleSize: properties.length
+      sampleSize: properties.length,
+      currentEthPriceTND: currentEthPrice
     });
     
   } catch (error) {

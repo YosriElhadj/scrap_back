@@ -125,3 +125,19 @@ MongooseError: Connection.prototype.close() no longer accepts a callback
     at C:\Users\elhad\OneDrive\Desktop\land-scraper-backend\routes\valuation.js:93:15
     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
 
+[2025-05-03T15:02:18.435Z] Uncaught Exception: Connection.prototype.close() no longer accepts a callback
+MongooseError: Connection.prototype.close() no longer accepts a callback
+    at NativeConnection.close (C:\Users\elhad\OneDrive\Desktop\land-scraper-backend\node_modules\mongoose\lib\connection.js:1205:11)
+    at Server.<anonymous> (C:\Users\elhad\OneDrive\Desktop\land-scraper-backend\server.js:132:25)
+    at Object.onceWrapper (node:events:638:28)
+    at Server.emit (node:events:524:28)
+    at emitCloseNT (node:net:2383:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+[2025-05-03T16:05:32.663Z] Uncaught Exception: Connection.prototype.close() no longer accepts a callback
+MongooseError: Connection.prototype.close() no longer accepts a callback
+    at NativeConnection.close (C:\Users\elhad\OneDrive\Desktop\land-scraper-backend\node_modules\mongoose\lib\connection.js:1205:11)
+    at Server.<anonymous> (C:\Users\elhad\OneDrive\Desktop\land-scraper-backend\server.js:132:25)
+    at Object.onceWrapper (node:events:638:28)
+    at Server.emit (node:events:524:28)
+    at emitCloseNT (node:net:2383:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
